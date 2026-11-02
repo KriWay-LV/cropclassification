@@ -53,13 +53,13 @@ def calculate_periodic_timeseries(
         force (bool = False): whether to force recalculation of existing data.
             (will not redownload images)
     """
-    info = gfo.get_layerinfo(input_parcel_path)
-    if info.crs is not None and not info.crs.equals(roi_crs):
-        raise ValueError(f"parcel crs ({info.crs}) <> roi crs ({roi_crs})")
-    if not shapely.box(*info.total_bounds).within(shapely.box(*roi_bounds)):
-        raise ValueError(
-            f"parcel bounds ({info.total_bounds}) not within roi_bounds ({roi_bounds})"
-        )
+    # info = gfo.get_layerinfo(input_parcel_path)
+    # if info.crs is not None and not info.crs.equals(roi_crs):
+    #     raise ValueError(f"parcel crs ({info.crs}) <> roi crs ({roi_crs})")
+    # if not shapely.box(*info.total_bounds).within(shapely.box(*roi_bounds)):
+    #     raise ValueError(
+    #         f"parcel bounds ({info.total_bounds}) not within roi_bounds ({roi_bounds})"
+    #     )
 
     periodic_images_result = mosaic_util.calc_periodic_mosaic(
         roi_bounds=roi_bounds,
