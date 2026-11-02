@@ -8,7 +8,12 @@ from pathlib import Path
 # Import geofilops here already, if tensorflow is loaded first leads to dll load errors
 import geofileops as gfo  # noqa: F401
 
-from cropclassification import calc_cover, calc_cropclass, calc_periodic_mosaic
+from cropclassification import (
+    calc_cover,
+    calc_cropclass,
+    calc_periodic_mosaic,
+    predict_parcels,
+)
 
 
 def _get_version() -> str:
@@ -114,6 +119,12 @@ def run_tasks(tasksdir: Path, config_overrules: list[str] | None = None) -> None
 
         if action in ("calc_marker", "calc_cropclass"):
             calc_cropclass.run_cropclass(
+                config_paths=config_paths,
+                default_basedir=default_basedir,
+                config_overrules=config_overrules,
+            )
+        elif action == "predict_parcels":
+            predict_parcels.run_predict_parcels(
                 config_paths=config_paths,
                 default_basedir=default_basedir,
                 config_overrules=config_overrules,
