@@ -21,7 +21,7 @@ def prepare(
     base_filename: str,
     data_ext: str,
     classtype_to_prepare: str,
-    classes_refe_path: Path,
+    classes_refe_path: Path | None,
     min_parcels_in_class: int,
     output_parcel_path: Path,
     force: bool = False,
@@ -41,7 +41,7 @@ def prepare(
 
     if input_parcel_filetype == "BEFL":
         # classes_refe_path must exist for BEFL!
-        if not classes_refe_path.exists():
+        if classes_refe_path is None or not classes_refe_path.exists():
             raise Exception(f"Input classes file doesn't exist: {classes_refe_path}")
 
         df_parceldata = befl.prepare_input(
@@ -50,6 +50,9 @@ def prepare(
             classes_refe_path=classes_refe_path,
             min_parcels_in_class=min_parcels_in_class,
         )
+    elif input_parcel_filetype == "PREDICT":
+        # Read input file
+        df_parceldata = pdh.read_file(input_parcel_path)
     else:
         message = f"Unknown value for input_parcel_filetype: {input_parcel_filetype}"
         logger.critical(message)
