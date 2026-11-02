@@ -75,9 +75,11 @@ def calc_top_classes_and_consolidation(
     # The parcels added by the join don't have a prediction yet, so apply it
     # For the ignore classes, set the prediction to the ignore type
     classes_to_ignore = conf.marker.getlist("classes_to_ignore")
-    pred_df.loc[
-        pred_df[conf.columns["class_declared"]].isin(classes_to_ignore), "pred1"
-    ] = pred_df[conf.columns["class_declared"]]
+    class_declared_column = conf.columns["class_declared"]
+    if class_declared_column in pred_df.columns:
+        pred_df.loc[
+            pred_df[class_declared_column].isin(classes_to_ignore), "pred1"
+        ] = pred_df[class_declared_column]
     # For all other parcels without prediction there must have been no data
     # available for a classification, so set prediction to NODATA
     pred_df.fillna({"pred1": "NODATA"}, inplace=True)
@@ -203,17 +205,18 @@ def calc_top_classes(proba_df: pd.DataFrame, top_classes: int = 3) -> pd.DataFra
     # Concatenate both
     top_pred = np.concatenate([top_pred_classes, top_pred_values], axis=1)
     # Concatenate the ids, the classes and the top predictions
+    id_class_columns = [conf.columns["id"]]
+    class_declared_column = conf.columns["class_declared"]
+    if class_declared_column in proba_df.columns:
+        id_class_columns.append(class_declared_column)
     id_class_top = np.concatenate(
-        [
-            proba_df[[conf.columns["id"], conf.columns["class_declared"]]].values,
-            top_pred,
-        ],
+        [proba_df[id_class_columns].values, top_pred],
         axis=1,
     )
 
     # Convert to dataframe
     # Also apply infer_objects: otherwise the float columns are of object dtype.
-    columns = [conf.columns["id"], conf.columns["class_declared"]]
+    columns = id_class_columns.copy()
     for i in range(top_classes):
         columns.append(f"pred{i + 1}")
     for i in range(top_classes):
@@ -305,27 +308,29 @@ def add_cons_columns(
     new_pred_prob_column = f"{new_pred_column}_prob"
     pred_df[new_pred_prob_column] = -1.0
 
-    # If declared is UNKNOWN, retain it
-    pred_df.loc[
-        (pred_df[new_pred_column] == "UNDEFINED")
-        & (pred_df[conf.columns["class_declared"]] == "UNKNOWN"),
-        [new_pred_column, new_pred_prob_column],
-    ] = ["IGNORE:NOT_DECLARED", 1.0]
+    class_declared_column = conf.columns["class_declared"]
+    has_class_declared = class_declared_column in pred_df.columns
+    if has_class_declared:
+        # If declared is UNKNOWN, retain it
+        pred_df.loc[
+            (pred_df[new_pred_column] == "UNDEFINED")
+            & (pred_df[class_declared_column] == "UNKNOWN"),
+            [new_pred_column, new_pred_prob_column],
+        ] = ["IGNORE:NOT_DECLARED", 1.0]
 
     # If NODATA OR ignore class, retained those from pred1
+    nodata_or_ignored = pred_df["pred1"] == "NODATA"
+    if has_class_declared:
+        nodata_or_ignored |= pred_df[class_declared_column].isin(classes_to_ignore)
     pred_df.loc[
-        (pred_df[new_pred_column] == "UNDEFINED")
-        & (
-            (pred_df["pred1"] == "NODATA")
-            | (pred_df[conf.columns["class_declared"]].isin(classes_to_ignore))
-        ),
+        (pred_df[new_pred_column] == "UNDEFINED") & nodata_or_ignored,
         new_pred_column,
     ] = pred_df["pred1"]
 
     # Set consolidated prediction to declared class, if declared class is in top
     # predictions and if that probability is higher than
     # `retain_declared_if_in_top_min_prob`.
-    if retain_declared_if_in_top_n > 0:
+    if has_class_declared and retain_declared_if_in_top_n > 0:
         if (
             retain_declared_if_in_top_min_prob < 0.0
             or retain_declared_if_in_top_min_prob > 1.0
@@ -347,7 +352,7 @@ def add_cons_columns(
             top_cols = zip(top_pred_cols, top_pred_prob_cols, strict=True)
             for pred_col, prob_col in top_cols:
                 if (
-                    row[conf.columns["class_declared"]] == row[pred_col]
+                    row[class_declared_column] == row[pred_col]
                     and row[prob_col] >= retain_declared_if_in_top_min_prob
                 ):
                     return True
@@ -360,7 +365,7 @@ def add_cons_columns(
                 pred_df.apply(lambda row: is_declared_in_top_with_min_prob(row), axis=1)
             ),
             new_pred_column,
-        ] = pred_df[conf.columns["class_declared"]]
+        ] = pred_df[class_declared_column]
 
     # Set doubt based on percentage probability, for parcels that are still UNDEFINED.
     if apply_doubt_pct_proba:
@@ -373,7 +378,7 @@ def add_cons_columns(
             ] = "DOUBT:PROBA1<2*PROBA2"
 
         # Apply doubt for parcels with prediction != unverified input
-        if doubt_pred_ne_input_proba1_st_pct > 0:
+        if has_class_declared and doubt_pred_ne_input_proba1_st_pct > 0:
             if doubt_pred_ne_input_proba1_st_pct > 100:
                 raise Exception(
                     "doubt_pred_ne_input_proba1_st_pct should be float from 0 till 100,"
@@ -383,7 +388,7 @@ def add_cons_columns(
             # First apply already without correction
             pred_df.loc[
                 (pred_df[new_pred_column] == "UNDEFINED")
-                & (pred_df["pred1"] != pred_df[conf.columns["class_declared"]])
+                & (pred_df["pred1"] != pred_df[class_declared_column])
                 & (pred_df["pred1_prob"] < (doubt_pred_ne_input_proba1_st_pct / 100)),
                 new_pred_column,
             ] = "DOUBT:PRED<>INPUT-PROBA1<X"
@@ -398,7 +403,7 @@ def add_cons_columns(
 
                 pred_df.loc[
                     (pred_df[new_pred_column] == "UNDEFINED")
-                    & (pred_df["pred1"] != pred_df[conf.columns["class_declared"]])
+                    & (pred_df["pred1"] != pred_df[class_declared_column])
                     & (
                         pred_df["pred_prob"] < (doubt_pred_ne_input_proba1_st_pct / 100)
                     ),
@@ -406,7 +411,7 @@ def add_cons_columns(
                 ] = "DOUBT:PRED<>INPUT-PROBA1_CORRECTED<X"
 
         # Apply doubt for parcels with prediction == unverified input
-        if doubt_pred_eq_input_proba1_st_pct > 0:
+        if has_class_declared and doubt_pred_eq_input_proba1_st_pct > 0:
             if doubt_pred_eq_input_proba1_st_pct > 100:
                 raise ValueError(
                     "doubt_pred_ne_input_proba1_st_pct should be float from 0 till 100,"
@@ -414,7 +419,7 @@ def add_cons_columns(
                 )
             pred_df.loc[
                 (pred_df[new_pred_column] == "UNDEFINED")
-                & (pred_df["pred1"] == pred_df[conf.columns["class_declared"]])
+                & (pred_df["pred1"] == pred_df[class_declared_column])
                 & (pred_df["pred1_prob"] < (doubt_pred_eq_input_proba1_st_pct / 100)),
                 new_pred_column,
             ] = "DOUBT:PRED=INPUT-PROBA1<X"

@@ -312,17 +312,19 @@ def predict_proba(
     parcel_df.reset_index(inplace=True)
     if (
         conf.columns["id"] not in parcel_df.columns
-        or column_class not in parcel_df.columns
     ):
         message = (
-            f"Columns {conf.columns['id']} and {column_class} are mandatory for input "
-            "parameter parcel_df!"
+            f"Column {conf.columns['id']} is mandatory for input parameter parcel_df!"
         )
         logger.critical(message)
         raise Exception(message)
 
     # Now do final preparation for the classification
-    parcel_classes_df = parcel_df[column_class]
+    if column_class in parcel_df.columns:
+        parcel_classes_df = parcel_df[column_class]
+    else:
+        parcel_classes_df = parcel_df
+
     cols_to_keep = parcel_df.columns.difference(
         [conf.columns["id"], column_class, column_class_declared]
     )
@@ -366,14 +368,19 @@ def predict_proba(
     with classifier_classes_path.open() as file:
         classes_dict = ast.literal_eval(file.readline())
 
+    columns_to_return = [
+        column
+        for column in (conf.columns["id"], column_class, column_class_declared)
+        if column in parcel_df.columns
+    ]
     id_class_proba = np.concatenate(
         [
-            parcel_df[[conf.columns["id"], column_class, column_class_declared]].values,
+            parcel_df[columns_to_return].values,
             class_proba,
         ],
         axis=1,
     )
-    cols = [conf.columns["id"], column_class, column_class_declared]
+    cols = columns_to_return
     cols.extend(classes_dict)
     proba_df = pd.DataFrame(id_class_proba, columns=cols)
     proba_df = proba_df.set_index(keys=conf.columns["id"])

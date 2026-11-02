@@ -465,11 +465,12 @@ def predict(
     logger.debug("Read predict input file ready")
 
     # For parcels of a class that should be ignored, don't predict
-    input_parcel_df = input_parcel_df.loc[
-        ~input_parcel_df[conf.columns["class_declared"]].isin(
-            conf.marker.getlist("classes_to_ignore")
-        )
-    ]
+    if conf.columns["class_declared"] in input_parcel_df.columns:
+        input_parcel_df = input_parcel_df.loc[
+            ~input_parcel_df[conf.columns["class_declared"]].isin(
+                conf.marker.getlist("classes_to_ignore")
+            )
+        ]
 
     # get the expected columns from the classifier
     datacolumns_path = next(input_classifier_path.parent.glob("*datacolumns.txt"))
