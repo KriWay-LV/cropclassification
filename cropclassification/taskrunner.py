@@ -11,8 +11,8 @@ import geofileops as gfo  # noqa: F401
 from cropclassification import (
     calc_cover,
     calc_cropclass,
+    calc_delany_parcels,
     calc_periodic_mosaic,
-    predict_parcels,
 )
 
 
@@ -124,7 +124,7 @@ def run_tasks(tasksdir: Path, config_overrules: list[str] | None = None) -> None
                 config_overrules=config_overrules,
             )
         elif action == "predict_parcels":
-            predict_parcels.run_predict_parcels(
+            calc_delany_parcels.run_predict_parcels(
                 config_paths=config_paths,
                 default_basedir=default_basedir,
                 config_overrules=config_overrules,

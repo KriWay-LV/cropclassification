@@ -18,6 +18,7 @@ general: Any
 calc_timeseries_params: Any
 calc_marker_params: Any
 calc_periodic_mosaic_params: Any
+calc_delany_parcels_params: Any
 roi: Any
 period: Any
 images: Any
@@ -213,6 +214,11 @@ def read_config(
         calc_periodic_mosaic_params = config["calc_periodic_mosaic_params"]
     else:
         calc_periodic_mosaic_params = None
+    global calc_delany_parcels_params  # noqa: PLW0603
+    if "calc_delany_parcels_params" in config:
+        calc_delany_parcels_params = config["calc_delany_parcels_params"]
+    else:
+        calc_delany_parcels_params = None
     global roi  # noqa: PLW0603
     roi = config["roi"]
     global period  # noqa: PLW0603

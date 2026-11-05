@@ -9,16 +9,36 @@ from pathlib import Path
 # Import geofilops here already, if tensorflow is loaded first leads to dll load errors
 import geofileops as gfo
 import pyproj
+from osgeo import gdal
 
 from cropclassification.helpers import config_helper as conf
 from cropclassification.helpers import dir_helper, log_helper
 from cropclassification.helpers import model_helper as mh
-from cropclassification.postprocess import classification_postprocess as class_post
-from cropclassification.postprocess import classification_reporting as report
+from cropclassification.postprocess import (
+    classification_postprocess as class_post,
+)
+from cropclassification.postprocess import (
+    delany_postprocess,
+)
 from cropclassification.predict import classification
 from cropclassification.preprocess import _timeseries_helper as ts_helper
 from cropclassification.preprocess import prepare_input
 from cropclassification.preprocess import timeseries as ts
+
+
+def _find_parcel_prediction_file(model_dir: Path, geofile_ext: str) -> Path:
+    """Find the weekly prediction GeoPackage in the model directory."""
+    prediction_paths = sorted(model_dir.glob(f"*weekly_predict_all{geofile_ext}"))
+    if not prediction_paths:
+        raise FileNotFoundError(
+            f"No weekly prediction file found in {model_dir} "
+            f"with extension {geofile_ext}"
+        )
+    if len(prediction_paths) > 1:
+        raise ValueError(
+            f"Multiple weekly prediction files found in {model_dir}: {prediction_paths}"
+        )
+    return prediction_paths[0]
 
 
 def run_predict_parcels(
@@ -108,7 +128,6 @@ def run_predict_parcels(
     # Read the info about the run
     input_parcel_filename = conf.calc_marker_params.getpath("input_parcel_filename")
     input_parcel_filetype = conf.calc_marker_params["input_parcel_filetype"]
-    classes_refe_filename = conf.calc_marker_params.getpath("classes_refe_filename")
     input_model_to_use_relativepath = conf.calc_marker_params.getpath(
         "input_model_to_use_relativepath"
     )
@@ -139,16 +158,17 @@ def run_predict_parcels(
     if info.crs is not None and not info.crs.equals(
         pyproj.CRS.from_user_input(conf.roi.get("roi_crs"))
     ):
+        dst = (
+            input_parcel_path.parent
+            / f"{input_parcel_filename.stem}_reprojected{input_parcel_filename.suffix}"
+        )
         gfo.copy_layer(
             src=input_parcel_path,
-            dst=input_parcel_path.parent
-            / f"{input_parcel_filename.stem}_reprojected{input_parcel_filename.suffix}",
+            dst=dst,
             dst_crs=f"EPSG:{conf.roi.get('roi_crs')}",
-            force=True,
+            force=False,
         )
-
-    refe_dir = conf.paths.getpath("refe_dir")
-    classes_refe_path = refe_dir / classes_refe_filename
+        input_parcel_path = dst
 
     # Check if the necessary input files exist...
     for path in [input_parcel_path]:
@@ -172,6 +192,17 @@ def run_predict_parcels(
     #    1) apply a negative buffer on the parcel to evade mixels
     #    2) remove features that became null because of buffer
     input_preprocessed_dir = conf.paths.getpath("input_preprocessed_dir")
+    input_preprocessed_dir.mkdir(parents=True, exist_ok=True)
+    input_parcel_simplified_path = (
+        input_preprocessed_dir / f"{input_parcel_filename.stem}_simplified{geofile_ext}"
+    )
+    logger.info(
+        "Simplify parcel coverage with GDAL using a tolerance of 1.0 source CRS units: "
+        f"{input_parcel_simplified_path}"
+    )
+
+    input_parcel_path = input_parcel_simplified_path
+
     buffer = conf.timeseries.getfloat("buffer")
     input_parcel_nogeo_path = (
         input_preprocessed_dir / f"{input_parcel_filename.stem}{data_ext}"
@@ -272,13 +303,7 @@ def run_predict_parcels(
         force=False,
     )
 
-    # STEP 5: if necessary, do extra postprocessing
-    # -------------------------------------------------------------
-    """if postprocess_to_groups is not None:
-        # TODO
-    """
-
-    # STEP 6: do the default, mandatory postprocessing
+    # STEP 5: do the default, mandatory postprocessing
     # -------------------------------------------------------------
     top_classes = conf.postprocess.getint("top_classes")
     # Postprocess predictions
@@ -297,6 +322,23 @@ def run_predict_parcels(
         output_predictions_geopath=parcel_predictions_all_geopath,
         top_classes=top_classes,
         output_predictions_output_path=parcel_predictions_all_output_path,
+    )
+
+    # STEP 6: do the Delany-specific postprocessing
+    # -------------------------------------------------------------
+    parcel_predictions_all_path = run_dir / f"{base_filename}_predict_all{data_ext}"
+    parcel_predictions_all_geopath = (
+        run_dir / f"{base_filename}_predict_all{geofile_ext}"
+    )
+    parcel_predictions_all_output_path = (
+        run_dir / f"{base_filename}_predict_all_output{output_ext}"
+    )
+    delany_postprocess.run(
+        parcel_prediction_path=_find_parcel_prediction_file(model_dir, geofile_ext),
+        delany_prediction_path=parcel_predictions_all_geopath,
+        min_delany_area_percentage=conf.calc_delany_parcels_params.getfloat(
+            "min_delany_area_percentage"
+        ),
     )
 
     logging.shutdown()
