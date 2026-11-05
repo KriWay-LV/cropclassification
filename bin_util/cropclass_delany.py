@@ -14,29 +14,42 @@ from cropclassification.postprocess.delany_postprocess import run
 
 logger = logging.getLogger(__name__)
 
+def x_dir() -> Path:
+    if os.name == "nt":
+        return Path("X:/")
+    else:
+        return Path("/mnt/shared/Common")
 
 def main() -> None:
     # INIT
-    parcel_prediction_path = Path("X:/Monitoring/Markers/dev/2026_CROPGROUP/Run_2026-10-22_001/Prc_BEFL_2026_2026-08-10_bufm5_weekly_predict_all.gpkg")
-    delany_prediction_path = Path("X:/Monitoring/Markers/dev/2026_CROPGROUP/Run_2026-11-04_004/2026_s2_bufm5_weekly_predict_all.gpkg")
+    parcel_prediction_path = x_dir() / "Monitoring/Markers/dev/2026_CROPGROUP/Run_2026-10-22_001/Prc_BEFL_2026_2026-08-10_bufm5_weekly_predict_all.gpkg"
+    delany_prediction_path = x_dir() / "Monitoring/Markers/dev/2026_CROPGROUP/Run_2026-11-04_004/2026_s2_bufm5_weekly_predict_all.gpkg"
     min_delany_area_percentage = 20
+    tolerance = 10.0
     
-    input_parcel_path = Path("X:/Monitoring/Markers/dev/_inputdata/2026_s2_reprojected.gpkg")
-    input_parcel_simplified_path = Path("X:/Monitoring/Markers/dev/_inputdata_preprocessed/2026_s2_simplified.gpkg")
+    input_parcel_path = x_dir() / "Monitoring/Markers/dev/_inputdata/2026_s2_reprojected.gpkg"
+    input_parcel_simplified_path = x_dir() / f"Monitoring/Markers/dev/_inputdata_preprocessed/2026_s2_simplified_{tolerance}.gpkg"
         
 
     # RUN
     try:
-        with gdal.Run(
-                "vector",
-                "simplify-coverage",
-                input=input_parcel_path,
-                output=input_parcel_simplified_path,
-                tolerance=3.0,
-                # preserve_boundary=True,
-            ) as alg:
-                pass
+        # with gdal.Run(
+        #         "vector",
+        #         "simplify-coverage",
+        #         input=input_parcel_path,
+        #         output=input_parcel_simplified_path,
+        #         tolerance=tolerance,
+        #         # preserve_boundary=True,
+        #     ) as alg:
+        #         pass
 
+        with gdal.alg.vector.simplify_coverage(
+            input=input_parcel_path,
+            output=input_parcel_simplified_path,
+            tolerance=tolerance,
+            overwrite=True,
+        ):
+            pass
         # run(
         #     parcel_prediction_path=parcel_prediction_path,
         #     delany_prediction_path=delany_prediction_path,
