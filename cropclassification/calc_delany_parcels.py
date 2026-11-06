@@ -79,7 +79,7 @@ def run_predict_parcels(
     # If running in conda, export the environment
     conda_env = os.environ.get("CONDA_DEFAULT_ENV")
     if conda_env is not None:
-        environment_yml_path = run_dir / f"{conda_env}.yml"
+        environment_yml_path = run_dir / f"{Path(conda_env).name}.yml"
         logger.info(f"Export conda environment used to {environment_yml_path}")
         os.system(f"conda env export > {environment_yml_path}")
 
