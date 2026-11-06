@@ -118,7 +118,7 @@ def run_predict_parcels(
             for idx, config_path in enumerate(config_paths):
                 # Prepend with idx so the order of config files is retained...
                 dst = configfiles_used_dir / f"{idx}_{config_path.name}"
-                shutil.copy(config_path, dst)
+                shutil.copyfile(config_path, dst)
 
             # Write the resolved complete config, so it can be reused
             logger.info("Write config_used.ini, so it can be reused later on")
@@ -166,7 +166,7 @@ def run_predict_parcels(
             src=input_parcel_path,
             dst=dst,
             dst_crs=f"EPSG:{conf.roi.get('roi_crs')}",
-            force=False,
+            force=True,
         )
         input_parcel_path = dst
 
@@ -193,15 +193,37 @@ def run_predict_parcels(
     #    2) remove features that became null because of buffer
     input_preprocessed_dir = conf.paths.getpath("input_preprocessed_dir")
     input_preprocessed_dir.mkdir(parents=True, exist_ok=True)
+    simplify_tolerance = 5
     input_parcel_simplified_path = (
-        input_preprocessed_dir / f"{input_parcel_filename.stem}_simplified{geofile_ext}"
+        input_preprocessed_dir
+        / f"{input_parcel_filename.stem}_simplified_tol{simplify_tolerance}{geofile_ext}"
     )
     logger.info(
-        "Simplify parcel coverage with GDAL using a tolerance of 1.0 source CRS units: "
+        f"Simplify parcel coverage with GDAL using a tolerance of {simplify_tolerance} source CRS units: "
         f"{input_parcel_simplified_path}"
     )
 
-    input_parcel_path = input_parcel_simplified_path
+    with gdal.alg.vector.simplify_coverage(
+        input=input_parcel_path,
+        output=input_parcel_simplified_path,
+        tolerance=simplify_tolerance,
+        overwrite=True,
+    ):
+        pass
+
+    buffer_distance = 5
+    input_parcel_buffered_path = (
+        input_preprocessed_dir
+        / f"{input_parcel_filename.stem}_simplified_tol{simplify_tolerance}_buf{buffer_distance:g}{geofile_ext}"
+    )
+    gfo.buffer(
+        input_path=input_parcel_simplified_path,
+        output_path=input_parcel_buffered_path,
+        distance=-buffer_distance,
+        force=True,
+    )
+
+    input_parcel_path = input_parcel_buffered_path
 
     buffer = conf.timeseries.getfloat("buffer")
     input_parcel_nogeo_path = (
