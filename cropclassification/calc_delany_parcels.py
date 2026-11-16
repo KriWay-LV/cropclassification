@@ -3,14 +3,13 @@
 import logging
 import os
 import shutil
-import tempfile
 from datetime import datetime
 from pathlib import Path
 
 # Import geofilops here already, if tensorflow is loaded first leads to dll load errors
 import geofileops as gfo
 import pyproj
-from osgeo import gdal
+import shapely
 
 from cropclassification.helpers import config_helper as conf
 from cropclassification.helpers import dir_helper, log_helper
@@ -179,107 +178,62 @@ def run_predict_parcels(
     #    2) remove features that became null because of buffer
     input_preprocessed_dir = conf.paths.getpath("input_preprocessed_dir")
     input_preprocessed_dir.mkdir(parents=True, exist_ok=True)
+    info = gfo.get_layerinfo(input_parcel_path)
 
     # Get the CRS of the input parcel data and compare it with the ROI CRS.
     # Reproject if necessary.
-    info = gfo.get_layerinfo(input_parcel_path)
     roi_crs = pyproj.CRS.from_user_input(conf.roi.get("roi_crs"))
     if info.crs is None:
         raise ValueError(f"Input parcel file has no CRS: {input_parcel_path}")
-    if not info.crs.equals(roi_crs):
-        dst = input_preprocessed_dir / input_parcel_filename.name
-        tmp_dir = Path(tempfile.mkdtemp())
-        input_parcel_reproj_path = (
-            tmp_dir / f"{input_parcel_path.stem}_reproj{geofile_ext}"
-        )
+    parcel_reproject_path = input_dir / f"{input_parcel_path.stem}_reproj{geofile_ext}"
+    if not parcel_reproject_path.exists() and not info.crs.equals(roi_crs):
         gfo.copy_layer(
             src=input_parcel_path,
-            dst=input_parcel_reproj_path,
+            dst=parcel_reproject_path,
             dst_crs=roi_crs.to_string(),
             reproject=True,
-            force=False,
         )
-        input_parcel_path = input_parcel_reproj_path
+        logger.info(f"Reproject parcel data to ROI CRS: {parcel_reproject_path}")
+    else:
+        logger.info(f"Parcel data already in ROI CRS: {input_parcel_path}")
+    input_parcel_path = parcel_reproject_path
 
     # Clip the input parcel data to the region of interest (ROI) bounds.
-    roi_bounds_values = conf.roi.getlistfloat("roi_bounds")
-    if len(roi_bounds_values) != 4:
-        raise ValueError("roi_bounds must contain exactly four values")
-    roi_minx, roi_miny, roi_maxx, roi_maxy = roi_bounds_values
-    roi_bounds = (roi_minx, roi_miny, roi_maxx, roi_maxy)
-    input_parcel_roi_path = input_preprocessed_dir / input_parcel_filename.name
-    logger.info(
-        f"Clip parcel coverage to configured ROI bounds {roi_bounds}: "
-        f"{input_parcel_roi_path}"
-    )
-    gfo.clip_by_geometry(
-        input_path=input_parcel_path,
-        output_path=input_parcel_roi_path,
-        clip_geometry=roi_bounds,
-        force=False,
-    )
-    input_parcel_path = input_parcel_roi_path
-
-    clean_coverage_snapping_distance = conf.calc_delany_parcels_params.getfloat(
-        "clean_coverage_snapping_distance"
-    )
-    # if clean_coverage_snapping_distance < 0:
-    #     raise ValueError("clean_coverage_snapping_distance must be non-negative")
-
-    # Clean the parcel coverage before simplifying shared boundaries.
-    input_parcel_clean_path = (
-        run_dir / f"{input_parcel_filename.stem}_clean_coverage"
-        f"_snap_distance_{clean_coverage_snapping_distance}{geofile_ext}"
-    )
-    logger.info(
-        f"Clean parcel coverage with GDAL using a snapping distance of "
-        f"{clean_coverage_snapping_distance} source CRS units: "
-        f"{input_parcel_clean_path}"
-    )
-    if not input_parcel_clean_path.exists():
-        with gdal.alg.vector.clean_coverage(
-            input=input_parcel_path,
-            output=input_parcel_clean_path,
-            # maximum_gap_width=1,
-            # merge_strategie = "max-area",
-            # snapping_distance=clean_coverage_snapping_distance,
-            overwrite=True,
-        ):
-            pass
-
-    input_parcel_path = input_parcel_clean_path
-
-    # Simplify the parcel geometries.
-    simplify_tolerance = conf.calc_delany_parcels_params.getfloat("simplify_tolerance")
-    input_parcel_tolerance_filename = (
-        f"{input_parcel_filename.stem}_simplify_tolerance_{simplify_tolerance:g}"
-    )
-    input_parcel_simplify_path = (
-        run_dir / f"{input_parcel_tolerance_filename}{geofile_ext}"
-    )
-    logger.info(
-        f"Simplify parcel coverage with GDAL using a tolerance "
-        f"of {simplify_tolerance} source CRS units: "
-        f"{input_parcel_simplify_path}"
-    )
-
-    if not input_parcel_simplify_path.exists():
-        with gdal.alg.vector.simplify_coverage(
-            input=input_parcel_path,
-            output=input_parcel_simplify_path,
-            tolerance=simplify_tolerance,
-            overwrite=True,
-        ):
-            pass
-
-    input_parcel_path = input_parcel_simplify_path
+    roi_bounds = conf.roi.getlistfloat("roi_bounds")
+    roi_minx, roi_miny, roi_maxx, roi_maxy = roi_bounds
+    parcel_roi_path = input_dir / f"{input_parcel_filename.stem}_roi{geofile_ext}"
+    if not parcel_roi_path.exists() and not shapely.box(*info.total_bounds).within(
+        shapely.box(*roi_bounds)
+    ):
+        gfo.clip_by_geometry(
+            input_path=input_parcel_path,
+            output_path=parcel_roi_path,
+            clip_geometry=(roi_minx, roi_miny, roi_maxx, roi_maxy),
+            force=False,
+        )
+        # gfo.export_by_location(
+        #     input_to_select_from_path=parcel_roi_path,
+        #     output_path=parcel_roi_path,
+        #     location_geometry=(roi_minx, roi_miny, roi_maxx, roi_maxy),
+        #     force=False,
+        # )
+        logger.info(
+            f"Clip parcel coverage to configured ROI bounds {roi_bounds}: "
+            f"{parcel_roi_path}"
+        )
+    else:
+        logger.info(
+            f"Parcel coverage is within ROI bounds, no clipping needed: "
+            f"{input_parcel_path}"
+        )
+    input_parcel_path = parcel_roi_path
 
     buffer = conf.timeseries.getfloat("buffer")
     input_parcel_nogeo_path = (
-        input_preprocessed_dir / f"{input_parcel_tolerance_filename}{data_ext}"
+        input_preprocessed_dir / f"{input_parcel_filename.stem}{data_ext}"
     )
     imagedata_input_parcel_filename = (
-        f"{input_parcel_tolerance_filename}_bufm{buffer:g}{geofile_ext}"
+        f"{input_parcel_filename.stem}_bufm{buffer:g}{geofile_ext}"
     )
     imagedata_input_parcel_path = (
         input_preprocessed_dir / imagedata_input_parcel_filename
@@ -405,17 +359,22 @@ def run_predict_parcels(
     parcel_predictions_all_output_path = (
         run_dir / f"{base_filename}_predict_all_output{output_ext}"
     )
-    negative_buffer_distance = conf.calc_delany_parcels_params.getfloat(
-        "negative_buffer_distance"
-    )
-    minimum_parcel_area = conf.calc_delany_parcels_params.getfloat(
-        "minimum_parcel_area"
-    )
+
     delany_postprocess.run(
         parcel_prediction_path=_find_parcel_prediction_file(model_dir, geofile_ext),
         delany_prediction_path=parcel_predictions_all_geopath,
-        negative_buffer_distance=negative_buffer_distance,
-        minimum_parcel_area=minimum_parcel_area,
+        clean_coverage_snapping_distance=conf.calc_delany_parcels_params.getfloat(
+            "clean_coverage_snapping_distance"
+        ),
+        simplify_tolerance=conf.calc_delany_parcels_params.getfloat(
+            "simplify_tolerance"
+        ),
+        negative_buffer_distance=conf.calc_delany_parcels_params.getfloat(
+            "negative_buffer_distance"
+        ),
+        minimum_parcel_area=conf.calc_delany_parcels_params.getfloat(
+            "minimum_parcel_area"
+        ),
     )
 
     logging.shutdown()

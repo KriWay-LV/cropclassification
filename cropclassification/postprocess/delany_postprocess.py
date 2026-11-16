@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 import geofileops as gfo
+from osgeo import gdal
 
 # Get a logger...
 logger = logging.getLogger(__name__)
@@ -12,6 +13,8 @@ logger = logging.getLogger(__name__)
 def run(
     parcel_prediction_path: Path,
     delany_prediction_path: Path,
+    clean_coverage_snapping_distance: float = 0,
+    simplify_tolerance: float = 0,
     negative_buffer_distance: float = 5,
     minimum_parcel_area: float = 10,
 ) -> None:
@@ -26,13 +29,53 @@ def run(
         )
     if minimum_parcel_area < 0:
         raise ValueError("minimum_parcel_area must be non-negative")
+    if clean_coverage_snapping_distance < 0:
+        raise ValueError("clean_coverage_snapping_distance must be non-negative")
+
+    # Clean the parcel coverage before simplifying shared boundaries.
+    delany_prediction_parcel_clean_path = delany_prediction_path.with_stem(
+        f"{delany_prediction_path.stem}_clean_coverage{clean_coverage_snapping_distance:g}m"
+    )
+    logger.info(
+        f"Clean parcel coverage with GDAL using a snapping distance of "
+        f"{clean_coverage_snapping_distance} source CRS units: "
+        f"{delany_prediction_parcel_clean_path}"
+    )
+    if not delany_prediction_parcel_clean_path.exists():
+        with gdal.alg.vector.clean_coverage(
+            input=delany_prediction_path,
+            output=delany_prediction_parcel_clean_path,
+            # maximum_gap_width=1,
+            # merge_strategie = "max-area",
+            # snapping_distance=clean_coverage_snapping_distance,
+            overwrite=True,
+        ):
+            pass
+
+    # # Simplify the parcel geometries.
+    delany_prediction_parcel_simplify_path = delany_prediction_path.with_stem(
+        f"{delany_prediction_path.stem}_simplify_tolerance_{simplify_tolerance:g}"
+    )
+    logger.info(
+        f"Simplify parcel coverage with GDAL using a tolerance "
+        f"of {simplify_tolerance} source CRS units: "
+        f"{delany_prediction_parcel_simplify_path}"
+    )
+    if not delany_prediction_parcel_simplify_path.exists():
+        with gdal.alg.vector.simplify_coverage(
+            input=delany_prediction_parcel_clean_path,
+            output=delany_prediction_parcel_simplify_path,
+            tolerance=simplify_tolerance,
+            overwrite=True,
+        ):
+            pass
 
     # Add negative buffer to the delany prediction.
     delany_prediction_buffered_path = delany_prediction_path.with_stem(
         f"{delany_prediction_path.stem}_buf{negative_buffer_distance:g}m"
     )
     gfo.buffer(
-        input_path=delany_prediction_path,
+        input_path=delany_prediction_parcel_simplify_path,
         output_path=delany_prediction_buffered_path,
         distance=-negative_buffer_distance,
         force=True,
