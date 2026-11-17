@@ -363,9 +363,6 @@ def run_predict_parcels(
     delany_postprocess.run(
         parcel_prediction_path=_find_parcel_prediction_file(model_dir, geofile_ext),
         delany_prediction_path=parcel_predictions_all_geopath,
-        clean_coverage_snapping_distance=conf.calc_delany_parcels_params.getfloat(
-            "clean_coverage_snapping_distance"
-        ),
         simplify_tolerance=conf.calc_delany_parcels_params.getfloat(
             "simplify_tolerance"
         ),
