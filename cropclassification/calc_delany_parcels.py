@@ -3,6 +3,7 @@
 import logging
 import os
 import shutil
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -178,55 +179,57 @@ def run_predict_parcels(
     #    2) remove features that became null because of buffer
     input_preprocessed_dir = conf.paths.getpath("input_preprocessed_dir")
     input_preprocessed_dir.mkdir(parents=True, exist_ok=True)
-    info = gfo.get_layerinfo(input_parcel_path)
 
+    info = gfo.get_layerinfo(input_parcel_path)
     # Get the CRS of the input parcel data and compare it with the ROI CRS.
     # Reproject if necessary.
     roi_crs = pyproj.CRS.from_user_input(conf.roi.get("roi_crs"))
     if info.crs is None:
         raise ValueError(f"Input parcel file has no CRS: {input_parcel_path}")
-    parcel_reproject_path = input_dir / f"{input_parcel_path.stem}_reproj{geofile_ext}"
-    if not parcel_reproject_path.exists() and not info.crs.equals(roi_crs):
+    if not info.crs.equals(roi_crs):
+        backup_parcel_path = input_parcel_path.with_stem(
+            f"{input_parcel_path.stem}_backup"
+        )
+        gfo.copy(src=input_parcel_path, dst=backup_parcel_path)
         gfo.copy_layer(
-            src=input_parcel_path,
-            dst=parcel_reproject_path,
+            src=backup_parcel_path,
+            dst=input_parcel_path,
             dst_crs=roi_crs.to_string(),
             reproject=True,
+            force=True,
         )
-        logger.info(f"Reproject parcel data to ROI CRS: {parcel_reproject_path}")
+        logger.info(f"Reproject parcel data to ROI CRS: {input_parcel_path}")
     else:
         logger.info(f"Parcel data already in ROI CRS: {input_parcel_path}")
-    input_parcel_path = parcel_reproject_path
 
     # Clip the input parcel data to the region of interest (ROI) bounds.
     roi_bounds = conf.roi.getlistfloat("roi_bounds")
     roi_minx, roi_miny, roi_maxx, roi_maxy = roi_bounds
-    parcel_roi_path = input_dir / f"{input_parcel_filename.stem}_roi{geofile_ext}"
-    if not parcel_roi_path.exists() and not shapely.box(*info.total_bounds).within(
-        shapely.box(*roi_bounds)
-    ):
-        gfo.clip_by_geometry(
-            input_path=input_parcel_path,
-            output_path=parcel_roi_path,
-            clip_geometry=(roi_minx, roi_miny, roi_maxx, roi_maxy),
-            force=False,
-        )
-        # gfo.export_by_location(
-        #     input_to_select_from_path=parcel_roi_path,
-        #     output_path=parcel_roi_path,
-        #     location_geometry=(roi_minx, roi_miny, roi_maxx, roi_maxy),
+    if not shapely.box(*info.total_bounds).within(shapely.box(*roi_bounds)):
+        # gfo.copy_layer(
+        #     src=input_parcel_path if info.crs.equals(roi_crs) else parcel_reproj_path,
+        #     dst=parcel_reproj_path,
         #     force=False,
         # )
+        temp_parcel_clip_path = (
+            Path(tempfile.mkdtemp()) / f"{input_parcel_path.stem}_clip{geofile_ext}"
+        )
+        gfo.clip_by_geometry(
+            input_path=input_parcel_path,
+            output_path=temp_parcel_clip_path,
+            clip_geometry=(roi_minx, roi_miny, roi_maxx, roi_maxy),
+        )
+        gfo.copy(src=temp_parcel_clip_path, dst=input_parcel_path)
+        # TODO: use gfo.export_by_location instead of gfo.clip_by_geometry
         logger.info(
             f"Clip parcel coverage to configured ROI bounds {roi_bounds}: "
-            f"{parcel_roi_path}"
+            f"{input_parcel_path}"
         )
     else:
         logger.info(
             f"Parcel coverage is within ROI bounds, no clipping needed: "
             f"{input_parcel_path}"
         )
-    input_parcel_path = parcel_roi_path
 
     buffer = conf.timeseries.getfloat("buffer")
     input_parcel_nogeo_path = (
@@ -240,7 +243,9 @@ def run_predict_parcels(
     )
 
     ts_helper.prepare_input(
-        input_parcel_path=input_parcel_path,
+        input_parcel_path=input_parcel_path
+        if info.crs.equals(roi_crs)
+        else backup_parcel_path,
         output_imagedata_parcel_input_path=imagedata_input_parcel_path,
         output_parcel_nogeo_path=input_parcel_nogeo_path,
     )
