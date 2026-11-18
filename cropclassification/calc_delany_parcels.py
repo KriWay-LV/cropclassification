@@ -206,11 +206,6 @@ def run_predict_parcels(
     roi_bounds = conf.roi.getlistfloat("roi_bounds")
     roi_minx, roi_miny, roi_maxx, roi_maxy = roi_bounds
     if not shapely.box(*info.total_bounds).within(shapely.box(*roi_bounds)):
-        # gfo.copy_layer(
-        #     src=input_parcel_path if info.crs.equals(roi_crs) else parcel_reproj_path,
-        #     dst=parcel_reproj_path,
-        #     force=False,
-        # )
         temp_parcel_clip_path = (
             Path(tempfile.mkdtemp()) / f"{input_parcel_path.stem}_clip{geofile_ext}"
         )
