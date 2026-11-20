@@ -50,6 +50,7 @@ columns_BEFL_to_keep = [
     column_BEFL_latecrop2_gt_verified,
     column_BEFL_latecrop2_gt_unverified,
     "NATEELT_CTRL_DATUM",
+    "ALV_NUMMER",
 ]
 
 ndvi_latecrop_count = "latecrop_ndvi_count"

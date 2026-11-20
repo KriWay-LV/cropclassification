@@ -98,6 +98,7 @@ def run(
             "code_obj",
             "layer_id",
             "prc_id",
+            "alv_nummer",
             "pred_consolidated",
         ],
         input1_columns_prefix="parcel_",
